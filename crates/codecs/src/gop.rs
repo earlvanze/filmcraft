@@ -544,7 +544,9 @@ impl GopCache {
     /// Decoders may run slices on rayon, and a rayon thread waiting inside a decode can pick up
     /// another render job that asks this same source for a frame — on the thread that holds this
     /// cache's lock. Such a nested request must not lock again (deadlock): it decodes the frame
-    /// with a private decoder instead ([`Self::private_frame`]).
+    /// with a private decoder instead ([`Self::private_frame`]). A competing Rayon worker must
+    /// also avoid waiting: the lock owner can be waiting for nested work on that worker (frame
+    /// rotation, for example). Ordinary callers still share the sequential decoder/cache.
     pub fn frame(&self, s: &dyn VideoSamples, target: i64) -> crate::Result<Arc<VideoFrame>> {
         self.frame_late(s, target, None)
     }
@@ -580,7 +582,12 @@ impl GopCache {
         // after the guard on every return path: dropping a decoder can block (a hardware session
         // waits for its frames in flight) and must not hold this cache's lock.
         let mut released: Vec<Box<dyn VideoDecoder>> = Vec::new();
-        let mut st = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut st = match self.shared.state.try_lock() {
+            Ok(st) => st,
+            Err(TryLockError::Poisoned(e)) => e.into_inner(),
+            Err(TryLockError::WouldBlock) if rayon::current_thread_index().is_some() => return self.private_frame(s, i, want_pts, n),
+            Err(TryLockError::WouldBlock) => self.shared.state.lock().unwrap_or_else(|e| e.into_inner()),
+        };
         let _decoding = DecodingGuard::enter(me);
         st.last_used = Instant::now();
         let background = filmcraft_media::cancel::background();
@@ -761,7 +768,23 @@ impl GopCache {
             DECODED.fetch_add(1, Ordering::Relaxed);
             timed(|| dec.decode(&data, want_pts))
         });
-        let mut st = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut st = match self.shared.state.try_lock() {
+            Ok(st) => st,
+            Err(TryLockError::Poisoned(e)) => e.into_inner(),
+            Err(TryLockError::WouldBlock) if rayon::current_thread_index().is_some() => {
+                // Another frame can now be rotating while holding the cache. Publish this
+                // independent intra result directly rather than blocking its Rayon child.
+                let frames = res?;
+                count_frames(&frames);
+                return frames
+                    .into_iter()
+                    .filter(|frame| frame.pts <= want_pts)
+                    .max_by_key(|frame| frame.pts)
+                    .map(|frame| Arc::new(self.finish(frame.frame)))
+                    .ok_or_else(|| CodecError::Decode("frame not produced".into()));
+            }
+            Err(TryLockError::WouldBlock) => self.shared.state.lock().unwrap_or_else(|e| e.into_inner()),
+        };
         if st.spare.len() < 16 {
             st.spare.push(dec);
         }
@@ -877,6 +900,57 @@ mod tests {
 
     fn samples(n: usize, gop: usize, delay: usize, intra: bool) -> Samples {
         Samples { n, gop, delay, intra, resets: Default::default(), decodes: Default::default() }
+    }
+
+    #[test]
+    fn intra_result_does_not_wait_for_a_contended_cache_on_rayon() {
+        use std::sync::mpsc;
+        struct GatedSamples {
+            inner: Samples,
+            entered: mpsc::Sender<()>,
+            release: Mutex<mpsc::Receiver<()>>,
+        }
+        impl VideoSamples for GatedSamples {
+            fn count(&self) -> usize {
+                self.inner.count()
+            }
+            fn pts(&self, i: usize) -> i64 {
+                self.inner.pts(i)
+            }
+            fn sync_before(&self, i: usize) -> usize {
+                self.inner.sync_before(i)
+            }
+            fn sample_at(&self, t: i64) -> Option<usize> {
+                self.inner.sample_at(t)
+            }
+            fn read(&self, i: usize) -> crate::Result<Vec<u8>> {
+                self.entered.send(()).unwrap();
+                self.release.lock().unwrap().recv_timeout(Duration::from_secs(5)).unwrap();
+                self.inner.read(i)
+            }
+            fn make_decoder(&self) -> crate::Result<Box<dyn VideoDecoder>> {
+                self.inner.make_decoder()
+            }
+        }
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let s = GatedSamples { inner: samples(1, 1, 0, true), entered: entered_tx, release: Mutex::new(release_rx) };
+        let cache = Arc::new(GopCache::new(None));
+        let worker_cache = cache.clone();
+        let (done_tx, done_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap().install(|| {
+                done_tx.send(worker_cache.frame(&s, 0)).unwrap();
+            });
+        });
+        entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let guard = cache.shared.state.lock().unwrap();
+        release_tx.send(()).unwrap();
+        let early = done_rx.recv_timeout(Duration::from_secs(1));
+        drop(guard); // also releases the negative control before joining it
+        worker.join().unwrap();
+        let result = early.expect("intra publication blocked a Rayon worker on another frame's cache lock").unwrap();
+        assert_eq!(result.to_rgba8(), picture((0, false)).frame.to_rgba8());
     }
 
     fn index_of(f: &VideoFrame) -> usize {
