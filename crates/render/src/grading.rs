@@ -131,7 +131,7 @@ pub fn lut_ok(lut: &Lut) -> bool {
         .as_ref()
         .is_none_or(|l| (2..=65536).contains(&l.data.len()) && domain(&l.domain_min, &l.domain_max) && l.data.iter().flatten().all(|v| v.is_finite()))
         && lut.cube.as_ref().is_none_or(|l| {
-            (2..=64).contains(&l.size)
+            (2..=65).contains(&l.size)
                 && l.data.len() == l.size.saturating_pow(3)
                 && domain(&l.domain_min, &l.domain_max)
                 && l.data.iter().flatten().all(|v| v.is_finite())

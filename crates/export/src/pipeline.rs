@@ -118,6 +118,10 @@ pub(crate) struct Pipeline {
     /// The registered frame renderers (GPU compositors) when the setting allows and factories
     /// provide them; pooled because `frame` runs on several export threads at once.
     renderer: Option<RendererPool>,
+    gpu_requested: bool,
+    gpu_frames: std::sync::atomic::AtomicU64,
+    cpu_fallbacks: std::sync::atomic::AtomicU64,
+    fallback_reason: std::sync::Mutex<Option<&'static str>>,
     pub seq: ItemId,
     /// Output frame rate (frame `f` is at `rate.tick_of(f)`).
     pub rate: FrameRate,
@@ -210,6 +214,10 @@ impl Pipeline {
         Ok(Pipeline {
             native_format: None,
             renderer,
+            gpu_requested: settings.gpu_rendering != GpuRendering::Off,
+            gpu_frames: std::sync::atomic::AtomicU64::new(0),
+            cpu_fallbacks: std::sync::atomic::AtomicU64::new(0),
+            fallback_reason: std::sync::Mutex::new(None),
             seq_rate: q.settings.frame_rate,
             start_tc: q.start_timecode,
             drop_frame: q.settings.drop_frame,
@@ -229,6 +237,28 @@ impl Pipeline {
         })
     }
 
+    pub(crate) fn gpu_stats(&self) -> crate::GpuExportStats {
+        use std::sync::atomic::Ordering;
+        crate::GpuExportStats {
+            frames: self.gpu_frames.load(Ordering::Relaxed),
+            cpu_fallbacks: self.cpu_fallbacks.load(Ordering::Relaxed),
+            fallback_reason: self.fallback_reason.lock().unwrap_or_else(std::sync::PoisonError::into_inner).map(str::to_owned),
+        }
+    }
+
+    fn gpu_frame(&self) {
+        self.gpu_frames.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        note_gpu_frame();
+    }
+
+    fn cpu_fallback(&self, reason: &'static str) {
+        self.cpu_fallbacks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        *self.fallback_reason.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(reason);
+        if self.renderer.is_some() {
+            note_gpu_fallback();
+        }
+    }
+
     /// Native surfaces are eligible only when placement and export effects need no CPU work.
     /// Sequence effects, opacity and captions are already part of the GPU frame plan.
     pub(crate) fn encoder_frame(&self, f: i64, sources: &dyn SourceProvider) -> crate::job::Frame {
@@ -245,7 +275,7 @@ impl Pipeline {
         if eligible && let (Some(format), Some(pool)) = (self.native_format, &self.renderer) {
             let native = pool.with(|r| r.render_native(&self.project, self.seq, self.rate.tick_of(f), self.opts, sources, format)).flatten();
             if let Some(frame) = native.filter(|frame| frame.format == format && frame.width == self.w && frame.height == self.h) {
-                note_gpu_frame();
+                self.gpu_frame();
                 return crate::job::Frame::Native(frame);
             }
         }
@@ -276,13 +306,19 @@ impl Pipeline {
         };
         let img = match gpu {
             Some(img) => {
-                note_gpu_frame();
+                self.gpu_frame();
                 img
             }
             None => {
-                if self.renderer.is_some() {
-                    note_gpu_fallback();
-                }
+                self.cpu_fallback(if !self.gpu_requested {
+                    "GPU rendering off"
+                } else if self.renderer.is_none() {
+                    "renderer unavailable"
+                } else if pool.is_none() {
+                    "CPU frame plan"
+                } else {
+                    "GPU renderer declined frame"
+                });
                 filmcraft_render::render_sequence(&self.project, self.seq, t, self.opts, sources)
             }
         };

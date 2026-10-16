@@ -703,6 +703,14 @@ impl Progress {
     }
 }
 
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct GpuExportStats {
+    pub frames: u64,
+    pub cpu_fallbacks: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_reason: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct Report {
     pub path: String,
@@ -710,6 +718,7 @@ pub struct Report {
     pub seconds: f64,
     pub bytes: u64,
     pub render_fps: f64,
+    pub gpu_render: GpuExportStats,
     /// Further files written besides `path` (MXF OP-Atom audio files).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extra_files: Vec<String>,
@@ -1884,8 +1893,11 @@ pub fn export(project: &Arc<Project>, seq: ItemId, settings: &ExportSettings, so
     let range = export_range(project, seq, settings)?;
     let cancelled = || progress.cancel.load(Ordering::Relaxed);
     let batch = rayon::current_num_threads().clamp(2, 16) as i64;
-    let (bytes, nframes) = match settings.format {
-        Format::Aac => aac_out::export(project, seq, settings, range, sources, progress)?,
+    let (bytes, nframes, gpu_render) = match settings.format {
+        Format::Aac => {
+            let (bytes, frames) = aac_out::export(project, seq, settings, range, sources, progress)?;
+            (bytes, frames, GpuExportStats::default())
+        }
         Format::Wav | Format::Aiff | Format::Flac => {
             let mut a = audio_out::AudioOut::new(project.clone(), seq, settings, range)?;
             let (ch, sr, fmt) = (a.channels as u16, a.sr, settings.audio.sample_format());
@@ -1949,7 +1961,7 @@ pub fn export(project: &Arc<Project>, seq: ItemId, settings: &ExportSettings, so
             if settings.part_of_batch {
                 progress.done.store(1, Ordering::Relaxed);
             }
-            (n, frames)
+            (n, frames, GpuExportStats::default())
         }
         f if f.is_image_sequence() || f == Format::Gif => {
             let pipe = pipeline::Pipeline::new(project.clone(), seq, settings, false)?;
@@ -2012,7 +2024,7 @@ pub fn export(project: &Arc<Project>, seq: ItemId, settings: &ExportSettings, so
                 let data = std::mem::take(&mut *buf.0.lock().unwrap_or_else(|e| e.into_inner()));
                 total = write_output(settings, &settings.path, data)?;
             }
-            (total, count)
+            (total, count, pipe.gpu_stats())
         }
         _ => {
             // Handled by the stepped exporter above; reaching here would be a dispatch bug.
@@ -2024,7 +2036,15 @@ pub fn export(project: &Arc<Project>, seq: ItemId, settings: &ExportSettings, so
         progress.finished.store(true, Ordering::Relaxed);
         progress.set_status(format!("Done in {secs:.1}s"));
     }
-    Ok(Report { path: settings.path.clone(), frames: nframes, seconds: secs, bytes, render_fps: nframes as f64 / secs.max(1e-6), extra_files: Vec::new() })
+    Ok(Report {
+        path: settings.path.clone(),
+        frames: nframes,
+        seconds: secs,
+        bytes,
+        render_fps: nframes as f64 / secs.max(1e-6),
+        gpu_render,
+        extra_files: Vec::new(),
+    })
 }
 
 #[cfg(test)]

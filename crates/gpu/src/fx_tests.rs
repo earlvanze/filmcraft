@@ -947,6 +947,9 @@ fn advanced_lumetri_and_fused_masked_spatial_chains_match_cpu() {
         s.domain_max = [1.1; 3];
     }
     chains.push(vec![FxOp::Lut { lut: Arc::new(lut) }]);
+    // Common camera LUT size: regression for the former 64-cube GPU cutoff.
+    let lut65 = filmcraft_color::Lut::from_cube(filmcraft_color::Lut3d::from_fn(65, |v| [v[0] * v[1], v[1], v[2].sqrt()]));
+    chains.push(vec![FxOp::Lut { lut: Arc::new(lut65) }]);
     for mode in [MaskMode::Add, MaskMode::Subtract, MaskMode::Intersect, MaskMode::Lighten, MaskMode::Darken, MaskMode::Difference] {
         let masks = vec![
             FlatMask { pts: vec![[5.0, 4.0], [58.0, 7.0], [45.0, 35.0], [10.0, 30.0]], feather: 5.0, expansion: -1.0, opacity: 0.7, inverted: false, mode },
