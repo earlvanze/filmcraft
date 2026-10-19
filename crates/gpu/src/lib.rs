@@ -106,6 +106,9 @@ pub struct GpuCompositor {
     output: Option<(wgpu::Texture, wgpu::TextureView, (u32, u32))>,
     accum_readback_buf: Option<(wgpu::Buffer, u64)>,
     uploads: HashMap<(usize, u32, u32), Uploaded>,
+    /// Uploads of the plan being drawn: never evicted until its draws are recorded, so a later
+    /// layer's upload over budget cannot drop an earlier layer of the same frame.
+    frame_keys: Vec<(usize, u32, u32)>,
     clock: u64,
     dummy: wgpu::TextureView,
     /// The effect stage (None on devices without compute shaders or storage textures: layers
@@ -442,6 +445,7 @@ impl GpuCompositor {
             output: None,
             accum_readback_buf: None,
             uploads: HashMap::new(),
+            frame_keys: Vec::new(),
             clock: 0,
             dummy,
             fx,
@@ -509,10 +513,14 @@ impl GpuCompositor {
     fn trim_sources(&mut self, protected: Option<(usize, u32, u32)>) {
         // Bound retained uploads by bytes as well as count. Commands/bind groups already
         // retain in-flight textures, so evicting an older cache entry cannot invalidate a draw.
+        // The current plan's uploads are not bound yet: they stay until its draws are recorded
+        // (a 4K title re-rasterised every frame used to evict the frame's own video under memory
+        // pressure, which then drew transparent and exported as a black frame).
         let budget = filmcraft_frame::memory::budgets().gpu_uploads;
         let mut held = UPLOAD_BYTES.load(std::sync::atomic::Ordering::Relaxed);
         if self.uploads.len() > 24 || held > budget {
-            let mut v: Vec<_> = self.uploads.iter().filter(|(k, _)| Some(**k) != protected).map(|(k, u)| (u.last_used, *k)).collect();
+            let mut v: Vec<_> =
+                self.uploads.iter().filter(|(k, _)| Some(**k) != protected && !self.frame_keys.contains(k)).map(|(k, u)| (u.last_used, *k)).collect();
             v.sort_unstable();
             for (_, k) in v {
                 if self.uploads.len() <= 24 && held <= budget {
@@ -834,6 +842,8 @@ impl GpuCompositor {
             .collect();
         let resolved: Vec<&PlanLayer> = layers.iter().zip(&cpu_fx).map(|(l, c)| c.as_ref().unwrap_or(l)).collect();
         let layers = resolved;
+        // Earlier plans' draws are already submitted; only this plan's uploads need protecting.
+        self.frame_keys.clear();
         let keys: Vec<(usize, u32, u32)> = layers
             .iter()
             .enumerate()
@@ -841,7 +851,9 @@ impl GpuCompositor {
                 let p = prep.and_then(|p| if matches!(plan, FramePlan::Image(_)) { p.image.as_ref() } else { p.layers.get(i).and_then(Option::as_ref) });
                 // (texels converted beforehand belong to the plan's own frame)
                 let p = if cpu_fx.get(i).is_some_and(Option::is_some) { None } else { p };
-                self.upload(&l.frame, p)
+                let key = self.upload(&l.frame, p);
+                self.frame_keys.push(key);
+                key
             })
             .collect();
         // (bind group, None for a fixed-function layer or Some(region of the accumulator to copy
