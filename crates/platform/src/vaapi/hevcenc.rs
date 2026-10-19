@@ -15,7 +15,7 @@ use filmcraft_isobmff::{HevcConfig, HevcNalArray, SampleEntry};
 use filmcraft_time::FrameRate;
 
 use super::device::{Display, EncodeSession};
-use super::ffi::*;
+use super::enc_ffi::*;
 
 /// log2(MaxPicOrderCntLsb).
 const LOG2_MAX_POC_LSB: u32 = 8;

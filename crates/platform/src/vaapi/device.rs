@@ -8,7 +8,7 @@ use std::os::fd::AsRawFd;
 
 use filmcraft_frame::VideoFrame;
 
-use super::ffi::*;
+use super::enc_ffi::*;
 use crate::biplanar::{Biplanar, Geometry};
 
 /// Render nodes tried, in order (`FILMCRAFT_VAAPI_DEVICE` names one explicitly).

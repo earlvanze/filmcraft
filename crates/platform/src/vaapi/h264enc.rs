@@ -18,7 +18,7 @@ use filmcraft_isobmff::{AvcConfig, SampleEntry};
 use filmcraft_time::FrameRate;
 
 use super::device::{Display, EncodeSession};
-use super::ffi::*;
+use super::enc_ffi::*;
 
 /// log2(MaxFrameNum) and log2(MaxPicOrderCntLsb).
 const LOG2_MAX_FRAME_NUM: u32 = 8;
