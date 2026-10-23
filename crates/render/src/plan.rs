@@ -100,17 +100,13 @@ pub enum PlanStep {
 struct PlanStack {
     steps: Vec<PlanStep>,
     exhausted: bool,
+    /// Layers held in `steps`, kept as they are pushed so the cap check stays O(1).
+    layers: usize,
 }
 
 impl PlanStack {
     fn layer_count(&self) -> usize {
-        self.steps
-            .iter()
-            .map(|s| match s {
-                PlanStep::Layers(layers) => layers.len(),
-                PlanStep::Transition { inputs, .. } => inputs.iter().map(Vec::len).sum(),
-            })
-            .sum()
+        self.layers
     }
 
     fn push(&mut self, layer: PlanLayer) {
@@ -126,13 +122,16 @@ impl PlanStack {
         } else {
             self.steps.push(PlanStep::Layers(vec![layer]));
         }
+        self.layers = self.layers.saturating_add(1);
     }
 
     fn push_transition(&mut self, inputs: [Vec<PlanLayer>; 2], effect: filmcraft_project::EffectInstance, progress: f32, scale: f32) {
-        if self.exhausted || self.layer_count().saturating_add(inputs.iter().map(Vec::len).sum()) > MAX_PLAN_LAYERS {
+        let added: usize = inputs.iter().map(Vec::len).sum();
+        if self.exhausted || self.layer_count().saturating_add(added) > MAX_PLAN_LAYERS {
             self.exhausted = true;
             return;
         }
+        self.layers = self.layers.saturating_add(added);
         self.steps.push(PlanStep::Transition { inputs, effect, progress, scale });
     }
 
@@ -612,7 +611,7 @@ mod tests {
             scale: 1.0,
         }];
         let expected = execute_cpu(&FramePlan::Composite { width: 1, height: 1, steps: steps.clone() });
-        let layers = PlanStack { steps, exhausted: false }.into_layers(1, 1).unwrap();
+        let layers = PlanStack { steps, exhausted: false, layers: 1 }.into_layers(1, 1).unwrap();
         let got = execute_cpu(&FramePlan::Layers { width: 1, height: 1, layers });
         assert_eq!(got.px, expected.px);
         assert!(got.px.iter().any(|v| *v != 0.0));
