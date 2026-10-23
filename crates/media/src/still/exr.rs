@@ -29,7 +29,8 @@ const MAGIC: [u8; 4] = [0x76, 0x2f, 0x31, 0x01];
 const MAX_PIXELS: u64 = 1 << 26;
 /// Maximum memory retained while decoding the data window and, when different,
 /// the display window. Both buffers coexist during placement.
-const MAX_DECODED_BYTES: usize = 512 << 20;
+/// 2 GiB: an 8K RGBA f32 plate is 566 MB and the data and display windows may both be held.
+const MAX_DECODED_BYTES: usize = 2 << 30;
 /// Most attributes / channels we read from a header.
 const MAX_ATTRIBUTES: usize = 4096;
 const MAX_CHANNELS: usize = 1024;
