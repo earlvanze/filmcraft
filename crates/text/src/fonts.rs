@@ -115,16 +115,15 @@ fn walk(dir: &std::path::Path, depth: u32, out: &mut Vec<PathBuf>) {
     for e in rd.flatten() {
         let p = e.path();
         let Ok(file_type) = e.file_type() else { continue };
-        // Font discovery is bounded to the configured folders; never follow a symlink into a
-        // loop or an unrelated tree.
-        if file_type.is_symlink() {
-            continue;
-        }
+        // Font discovery is bounded to the configured folders: never follow a symlinked folder
+        // into a loop or an unrelated tree. Symlinked font files (NixOS, home-manager, Debian
+        // alternatives) still count.
+        let is_file = if file_type.is_symlink() { std::fs::metadata(&p).is_ok_and(|m| m.is_file()) } else { file_type.is_file() };
         if file_type.is_dir() {
             if depth < 4 {
                 walk(&p, depth + 1, out);
             }
-        } else if file_type.is_file()
+        } else if is_file
             && p.extension().and_then(|x| x.to_str()).is_some_and(|x| matches!(x.to_ascii_lowercase().as_str(), "ttf" | "otf" | "ttc" | "otc"))
         {
             out.push(p);
@@ -148,10 +147,12 @@ mod directory_tests {
         std::fs::write(configured.join("inside.ttf"), b"").unwrap();
         std::fs::write(foreign.join("outside.ttf"), b"").unwrap();
         symlink(&foreign, configured.join("loop")).unwrap();
+        symlink(foreign.join("outside.ttf"), configured.join("linked.ttf")).unwrap();
 
         let mut found = Vec::new();
         walk(&configured, 0, &mut found);
-        assert_eq!(found, vec![configured.join("inside.ttf")]);
+        found.sort();
+        assert_eq!(found, vec![configured.join("inside.ttf"), configured.join("linked.ttf")]);
     }
 }
 
