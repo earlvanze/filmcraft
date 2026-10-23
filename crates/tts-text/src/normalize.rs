@@ -206,9 +206,9 @@ fn peek(s: &str, i: usize) -> Option<char> {
 /// `[pause 1s]`, `[pause 500ms]`, `[pause 1.5s]` → a capped pause. Malformed markers
 /// return `None` and fall through to plain text (never an error).
 fn parse_pause(rest: &str) -> Option<(u32, usize)> {
-    let bounded = rest.get(..rest.len().min(MAX_PAUSE_MARKER_BYTES))?;
-    let close = bounded.find(']')?;
-    let inner = bounded.get(1..close)?.trim();
+    // search bytes: the 64-byte cut may fall inside a multi-byte character that follows the marker
+    let close = rest.as_bytes().iter().take(MAX_PAUSE_MARKER_BYTES).position(|&b| b == b']')?;
+    let inner = rest.get(1..close)?.trim();
     let value = inner.strip_prefix("pause")?;
     let value = value.trim_start();
     if value.is_empty() {
@@ -1495,6 +1495,9 @@ mod tests {
         assert_eq!(words("[pause 0.25s]", Lang::EnUs), "[pause 250]");
         assert_eq!(words("[pause 11s]", Lang::EnUs), "[pause 10000]");
         assert_eq!(words("[pause 999999999999s]", Lang::EnUs), "[pause 10000]");
+        // byte 64 falls inside an `é` after the marker: still a pause
+        let tokens = normalize(&format!("[pause 1s]x{}", "é".repeat(40)), Lang::EnUs).unwrap();
+        assert_eq!(tokens.first(), Some(&Token::Pause { millis: 1000 }));
         // Malformed markers stay plain text.
         assert_eq!(words("[pause", Lang::EnUs), "[ pause");
         assert_eq!(words("[pause x]", Lang::EnUs), "[ pause x ]");
