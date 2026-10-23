@@ -16,7 +16,8 @@ use crate::transform;
 /// Largest frame dimension in macroblocks (14-bit sizes).
 const MAX_MBS: usize = 16384 / 16 + 1;
 /// Maximum padded luma samples retained by one VP8 reference picture (about 8K UHD).
-const MAX_LUMA_SAMPLES: usize = 1 << 25;
+/// 2^26 luma samples: 8192x8192, above every VP8 frame a camera or encoder writes (8192x4320 is 35M).
+const MAX_LUMA_SAMPLES: usize = 1 << 26;
 
 /// A reconstructed frame: planes sized to whole macroblocks.
 #[derive(Clone)]
