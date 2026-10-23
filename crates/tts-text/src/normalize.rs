@@ -44,6 +44,8 @@ const MAX_INPUT: usize = 1_048_576;
 const MAX_PAUSE_MS: u32 = 10_000;
 /// Numbers with more than this many digits are read digit by digit (never overflow).
 const MAX_CARDINAL_DIGITS: usize = 12;
+/// A malformed pause marker is only inspected within this bounded prefix.
+const MAX_PAUSE_MARKER_BYTES: usize = 64;
 
 /// Normalize `text` into spoken-word tokens for `lang`.
 ///
@@ -157,7 +159,9 @@ pub fn normalize(text: &str, lang: Lang) -> Result<Vec<Token>, NormalizeError> {
                     out.push(terminator);
                 }
             }
-            _ if is_word_char(c) => match parse_wordish(rest, lang) {
+            // Apostrophes can occur inside a word, but an apostrophe-only run must not repeatedly
+            // scan the whole remaining script looking for a word.
+            _ if c.is_alphabetic() => match parse_wordish(rest, lang) {
                 Some((tokens, used)) => {
                     pos += used;
                     out.extend(tokens);
@@ -202,8 +206,9 @@ fn peek(s: &str, i: usize) -> Option<char> {
 /// `[pause 1s]`, `[pause 500ms]`, `[pause 1.5s]` → a capped pause. Malformed markers
 /// return `None` and fall through to plain text (never an error).
 fn parse_pause(rest: &str) -> Option<(u32, usize)> {
-    let close = rest.find(']')?;
-    let inner = rest.get(1..close)?.trim();
+    let bounded = rest.get(..rest.len().min(MAX_PAUSE_MARKER_BYTES))?;
+    let close = bounded.find(']')?;
+    let inner = bounded.get(1..close)?.trim();
     let value = inner.strip_prefix("pause")?;
     let value = value.trim_start();
     if value.is_empty() {
@@ -952,12 +957,13 @@ fn year_words(year: u64, _lang: Lang) -> Vec<Token> {
 
 /// Words, abbreviations, months, acronyms, a.m./p.m. and e.g./i.e.
 fn parse_wordish(rest: &str, _lang: Lang) -> Option<(Vec<Token>, usize)> {
-    let collected: String = rest.chars().take_while(|c| is_word_char(*c)).collect();
+    let end = rest.char_indices().find_map(|(i, c)| (!is_word_char(c)).then_some(i)).unwrap_or(rest.len());
+    let collected = rest.get(..end)?;
     let word = collected.trim_matches(|c| c == '\'' || c == '’');
     if word.is_empty() {
         return None;
     }
-    let used = word.len() + leading_apostrophes(rest);
+    let used = word.len();
     let lower = word.to_ascii_lowercase();
 
     // a.m. / p.m. — a single letter, a dot, "m", and a dot or boundary.
@@ -997,10 +1003,6 @@ fn parse_wordish(rest: &str, _lang: Lang) -> Option<(Vec<Token>, usize)> {
         return Some((tokens, used));
     }
     Some((vec![Token::Word(word.into())], used))
-}
-
-fn leading_apostrophes(rest: &str) -> usize {
-    rest.chars().take_while(|c| *c == '\'' || *c == '’').map(char::len_utf8).sum()
 }
 
 /// Expansions for `Mr.` etc.; the dot is consumed so it never ends a sentence.
@@ -1543,6 +1545,14 @@ mod tests {
     fn bad_grouping_falls_back() {
         assert_eq!(words("1,23", Lang::EnUs), "one , twenty-three");
         assert_eq!(words("1,2345", Lang::EnUs), "one , two thousand three hundred forty-five");
+    }
+
+    #[test]
+    fn malformed_marker_and_apostrophe_runs_make_linear_progress() {
+        let brackets = "[".repeat(20_000);
+        let apostrophes = "'".repeat(20_000);
+        assert_eq!(normalize(&brackets, Lang::EnUs).unwrap().len(), 20_000);
+        assert_eq!(normalize(&apostrophes, Lang::EnUs).unwrap().len(), 20_000);
     }
 
     #[test]
