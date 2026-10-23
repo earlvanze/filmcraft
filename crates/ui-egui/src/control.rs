@@ -331,6 +331,15 @@ pub fn handle(app: &mut FilmcraftApp, ctx: &egui::Context, req: &ControlRequest)
                 Err(e) if e.starts_with(RETRY) => return Outcome::Retry(e.trim_start_matches(RETRY).to_string()),
                 Err(e) => return err(e),
             };
+            // validate before queuing anything, so a refused count leaves no modifier held
+            let count = if req.method == "ui.click" {
+                match bounded_repetitions(p, "count", 1, 0, MAX_CLICK_COUNT) {
+                    Ok(count) => count,
+                    Err(error) => return err(error),
+                }
+            } else {
+                0
+            };
             let m = modifiers(p);
             app.synthetic.push(egui::Event::ModifiersChanged(m));
             app.synthetic.push(egui::Event::PointerMoved(pos));
@@ -339,10 +348,6 @@ pub fn handle(app: &mut FilmcraftApp, ctx: &egui::Context, req: &ControlRequest)
                     Some("right") => egui::PointerButton::Secondary,
                     Some("middle") => egui::PointerButton::Middle,
                     _ => egui::PointerButton::Primary,
-                };
-                let count = match bounded_repetitions(p, "count", 1, 0, MAX_CLICK_COUNT) {
-                    Ok(count) => count,
-                    Err(error) => return err(error),
                 };
                 for _ in 0..count {
                     app.synthetic.push(egui::Event::PointerButton { pos, button, pressed: true, modifiers: m });
