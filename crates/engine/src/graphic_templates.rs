@@ -171,7 +171,8 @@ pub fn thumbnail(t: &GraphicsTemplate, w: u32) -> (u32, u32, Vec<u8>) {
     // a moment into the clip, so intro animations have settled a little
     let at = Tick((t.duration.0 / 2).min(filmcraft_time::TICKS_PER_SECOND));
     let mut img = filmcraft_render::image::Image::new(w as usize, h as usize);
-    let k = w as f64 / t.canvas[0].max(1) as f64;
+    // fit both sides: a capped height leaves `w / canvas width` too large for a tall canvas
+    let k = (w as f64 / t.canvas[0].max(1) as f64).min(h as f64 / t.canvas[1].max(1) as f64);
     filmcraft_render::graphic_clip::render_graphic(&it, at, (t.canvas[0], t.canvas[1]), &Affine::scale(k, k), &mut img);
     (w, h, img.to_rgba8())
 }
