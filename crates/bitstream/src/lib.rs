@@ -24,7 +24,7 @@ impl fmt::Display for BitError {
         match self {
             BitError::Eof => f.write_str("unexpected end of bitstream"),
             BitError::InvalidExpGolomb => f.write_str("invalid Exp-Golomb code"),
-            BitError::InvalidNalLengthSize => f.write_str("NAL length prefix must be 1, 2, or 4 bytes"),
+            BitError::InvalidNalLengthSize => f.write_str("NAL length prefix must be 1 to 4 bytes"),
         }
     }
 }
@@ -307,9 +307,9 @@ pub fn annexb_nals(data: &[u8]) -> Vec<&[u8]> {
     out
 }
 
-/// Split a length-prefixed sample (AVCC/HVCC, `length_size` 1/2/4 bytes) into NAL units.
+/// Split a length-prefixed sample (AVCC/HVCC, `length_size` 1 to 4 bytes) into NAL units.
 pub fn length_prefixed_nals(data: &[u8], length_size: usize) -> Result<Vec<&[u8]>> {
-    if !matches!(length_size, 1 | 2 | 4) {
+    if !matches!(length_size, 1..=4) {
         return Err(BitError::InvalidNalLengthSize);
     }
     let mut out = Vec::new();
@@ -402,9 +402,11 @@ mod tests {
 
     #[test]
     fn length_prefixed_nals_rejects_invalid_prefix_sizes() {
-        for size in [0, 3, 5, usize::MAX] {
+        for size in [0, 5, usize::MAX] {
             assert!(length_prefixed_nals(&[0], size).is_err(), "size {size}");
         }
+        // `(lengthSizeMinusOne & 3) + 1` can be 3; such samples still split
+        assert_eq!(length_prefixed_nals(&[0, 0, 1, 0x65], 3).unwrap(), vec![&[0x65][..]]);
     }
 
     #[test]
