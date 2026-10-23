@@ -492,13 +492,11 @@ pub fn index_folder(root: &Path, limit: usize) -> BTreeMap<String, Vec<PathBuf>>
             let Ok(file_type) = e.file_type() else { continue };
             // A relink search must stay within the folder explicitly chosen by the user. In
             // particular, following a directory symlink can make a small loop defeat the file
-            // budget and walk an unrelated tree.
-            if file_type.is_symlink() {
-                continue;
-            }
+            // budget and walk an unrelated tree. Symlinked files are still candidates.
+            let is_file = if file_type.is_symlink() { std::fs::metadata(&p).is_ok_and(|m| m.is_file()) } else { file_type.is_file() };
             if file_type.is_dir() {
                 queue.push_back(p);
-            } else if file_type.is_file() {
+            } else if is_file {
                 out.entry(name.to_ascii_lowercase()).or_default().push(p);
                 n += 1;
                 if n >= limit {

@@ -176,10 +176,13 @@ fn relink_search_does_not_follow_directory_symlinks() {
     std::fs::write(inside.join("kept.mov"), b"kept").unwrap();
     std::fs::write(outside.join("outside.mov"), b"outside").unwrap();
     symlink(&outside, inside.join("loop")).unwrap();
+    symlink(outside.join("outside.mov"), inside.join("linked.mov")).unwrap();
 
     let index = index_folder(&inside, 20_000);
     assert!(index.contains_key("kept.mov"));
     assert!(!index.contains_key("outside.mov"));
+    // a symlinked file is still media the user can relink to
+    assert!(index.contains_key("linked.mov"));
     let _ = std::fs::remove_dir_all(&root);
 }
 
