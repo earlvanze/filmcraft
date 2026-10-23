@@ -10,6 +10,9 @@ use crate::loopfilter::{LfFrame, PlaneView, filter_superblock};
 use crate::probs::{Counts, adapt_coef_probs, adapt_noncoef_probs};
 use crate::tables::*;
 use crate::tile::{FrameShared, RefUse, Strip, TileDecoder};
+
+/// Maximum luma samples accepted for one decoded reference frame (about 8K UHD).
+const MAX_LUMA_SAMPLES: u64 = 1 << 25;
 use crate::{ColorInfo, Picture, Plane};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -257,6 +260,12 @@ impl Decoder {
             return Ok(());
         }
         ensure!(h.width <= 16384 && h.height <= 16384, "frame size {}x{} too large", h.width, h.height);
+        ensure!(
+            u64::from(h.width).checked_mul(u64::from(h.height)).is_some_and(|n| n <= MAX_LUMA_SAMPLES),
+            "frame size {}x{} exceeds the decoder memory limit",
+            h.width,
+            h.height
+        );
         let (mi_rows, mi_cols) = (h.mi_rows as usize, h.mi_cols as usize);
         // compute_image_size semantics (7.2.6).
         let size = (h.width, h.height);
@@ -279,6 +288,7 @@ impl Decoder {
         let off = h.uncompressed_size;
         let hs = h.header_size_in_bytes as usize;
         ensure!(off + hs <= data.len(), "compressed header exceeds frame data");
+        ensure!(off + hs < data.len(), "frame has no tile data");
         let mut fc = self.st.contexts[h.frame_context_idx as usize].clone();
         parse_compressed(&data[off..off + hs], &mut h, &mut fc)?;
         self.count_frame(&h);
