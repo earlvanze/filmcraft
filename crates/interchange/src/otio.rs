@@ -386,7 +386,7 @@ pub(crate) fn import(text: &str, opts: &ImportOptions, report: &mut Report) -> R
         let id = imp.timeline(tl);
         imp.b.top.push(id);
     }
-    Ok(imp.b.finish())
+    imp.b.finish().map_err(Error::Other)
 }
 
 fn collect_timelines<'v>(v: &'v Value, out: &mut Vec<&'v Value>) {

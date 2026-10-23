@@ -178,7 +178,7 @@ pub(crate) fn import(text_in: &str, opts: &ImportOptions, report: &mut Report) -
     if imp.b.p.items.is_empty() {
         return Err(Error::Empty);
     }
-    Ok(imp.b.finish())
+    imp.b.finish().map_err(Error::Other)
 }
 
 impl<'a, 'i> Imp<'a, 'i, '_> {

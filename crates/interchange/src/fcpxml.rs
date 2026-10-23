@@ -222,7 +222,7 @@ pub(crate) fn import(text: &str, opts: &ImportOptions, report: &mut Report) -> R
     if imp.b.p.items.is_empty() {
         return Err(Error::Empty);
     }
-    Ok(imp.b.finish())
+    imp.b.finish().map_err(Error::Other)
 }
 
 fn flag(n: Node, name: &str) -> Option<bool> {

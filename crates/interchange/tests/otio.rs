@@ -5,9 +5,10 @@ mod support;
 
 use filmcraft_interchange::{ExportOptions, Format, detect, import};
 use filmcraft_media::Generator;
-use filmcraft_project::{Keyframe, Label, Marker, MarkerId, MarkerKind, MediaRef, Param, ParamValue, Project, TrackKind, TransitionAlign};
+use filmcraft_project::{Keyframe, Label, Marker, MarkerId, MarkerKind, MediaRef, Param, ParamValue, Project, SequenceSettings, TrackKind, TransitionAlign};
 use filmcraft_time::{FrameRate, TICKS_PER_SECOND, Tick};
 use proptest::prelude::*;
+use serde_json::json;
 use support::*;
 
 fn rt(v: f64, rate: f64) -> String {
@@ -96,6 +97,19 @@ fn doc() -> String {
         src_amb = tr(0.0, 150.0, r),
         smk = tr(60.0, 0.0, r),
     )
+}
+
+#[test]
+fn import_rejects_unsafe_nested_sequence_dimensions() {
+    let settings = SequenceSettings { width: 32_768, height: 32_768, ..Default::default() };
+    let doc = json!({
+        "OTIO_SCHEMA": "Timeline.1",
+        "name": "unsafe dimensions",
+        "metadata": { "filmcraft": { "settings": settings } },
+        "tracks": { "OTIO_SCHEMA": "Stack.1", "name": "tracks", "children": [] }
+    });
+    let err = import(doc.to_string().as_bytes(), Format::Otio, None).unwrap_err();
+    assert!(err.to_string().contains("frame size"), "{err}");
 }
 
 #[test]

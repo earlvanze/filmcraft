@@ -478,7 +478,10 @@ impl Builder {
     }
 
     /// Finish: grow media durations to cover every use, return the fragment.
-    pub fn finish(mut self) -> Imported {
+    /// Finish an imported fragment only after applying the project-wide hostile-value bounds.
+    /// Importers can construct nested sequences before their media is opened, so this is the
+    /// common boundary that prevents untrusted interchange dimensions reaching the renderer.
+    pub fn finish(mut self) -> std::result::Result<Imported, String> {
         let mut need: HashMap<ItemId, Tick> = HashMap::new();
         for it in self.p.items.values() {
             if let Some(seq) = it.as_sequence() {
@@ -497,7 +500,12 @@ impl Builder {
                 m.info.duration = end;
             }
         }
-        Imported { project: self.p, sequences: self.top }
+        for item in self.p.items.values() {
+            if let Some(sequence) = item.as_sequence() {
+                sequence.check_bounds()?;
+            }
+        }
+        Ok(Imported { project: self.p, sequences: self.top })
     }
 }
 

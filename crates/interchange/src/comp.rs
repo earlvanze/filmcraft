@@ -785,7 +785,7 @@ pub(crate) fn to_project(doc: Document, opts: &ImportOptions, report: &mut Repor
         b.put_sequence(seq_id, seq);
         b.top.push(seq_id);
     }
-    Ok((b.finish(), extracted))
+    Ok((b.finish().map_err(crate::Error::Other)?, extracted))
 }
 
 fn build_sequence(

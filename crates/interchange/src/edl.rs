@@ -452,7 +452,7 @@ pub(crate) fn import(text: &str, opts: &ImportOptions, report: &mut Report) -> R
     let seq = std::mem::replace(&mut ctx.seq, empty_sequence(Default::default()));
     ctx.b.put_sequence(seq_id, seq);
     ctx.b.top.push(seq_id);
-    Ok(ctx.b.finish())
+    ctx.b.finish().map_err(crate::Error::Other)
 }
 
 fn source_tc_warning(p: &Parsed) -> bool {
