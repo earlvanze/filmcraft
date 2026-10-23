@@ -123,9 +123,7 @@ fn walk(dir: &std::path::Path, depth: u32, out: &mut Vec<PathBuf>) {
             if depth < 4 {
                 walk(&p, depth + 1, out);
             }
-        } else if is_file
-            && p.extension().and_then(|x| x.to_str()).is_some_and(|x| matches!(x.to_ascii_lowercase().as_str(), "ttf" | "otf" | "ttc" | "otc"))
-        {
+        } else if is_file && p.extension().and_then(|x| x.to_str()).is_some_and(|x| matches!(x.to_ascii_lowercase().as_str(), "ttf" | "otf" | "ttc" | "otc")) {
             out.push(p);
         }
     }
