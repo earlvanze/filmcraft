@@ -220,12 +220,21 @@ fn validate_loaded(mut loaded: Loaded) -> Result<Loaded, FormatError> {
     // whole project over one bad index. A media item keeps its first `MAX_AUDIO_STREAMS` streams; a
     // clip pointing past that plays stream 0.
     let max = filmcraft_media::MAX_AUDIO_STREAMS;
+    let max_channels = filmcraft_media::MAX_AUDIO_CHANNELS;
     for item in loaded.project.items.values_mut() {
         let name = item.name.clone();
         match &mut item.kind {
-            filmcraft_project::ItemKind::Media(m) if m.info.audio_streams.len() > max => {
-                log::warn!("media `{name}`: {} audio streams, keeping the first {max}", m.info.audio_streams.len());
-                m.info.audio_streams.truncate(max);
+            filmcraft_project::ItemKind::Media(m) => {
+                if m.info.audio_streams.len() > max {
+                    log::warn!("media `{name}`: {} audio streams, keeping the first {max}", m.info.audio_streams.len());
+                    m.info.audio_streams.truncate(max);
+                }
+                for stream in &mut m.info.audio_streams {
+                    if stream.channels == 0 || stream.channels > max_channels {
+                        log::warn!("media `{name}`: {} channels, clamping to {max_channels}", stream.channels);
+                        stream.channels = stream.channels.clamp(1, max_channels);
+                    }
+                }
             }
             filmcraft_project::ItemKind::Sequence(sequence) => {
                 let sequence = std::sync::Arc::make_mut(sequence);

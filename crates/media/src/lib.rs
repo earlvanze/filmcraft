@@ -82,6 +82,8 @@ pub struct VideoStreamInfo {
 
 /// Most audio streams a source reports (the count comes from the file: never trusted).
 pub const MAX_AUDIO_STREAMS: usize = 64;
+/// Maximum channels accepted from persisted or container metadata.
+pub const MAX_AUDIO_CHANNELS: u32 = 64;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AudioStreamInfo {
