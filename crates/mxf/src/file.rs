@@ -665,9 +665,7 @@ fn resolve_tracks(md: &Metadata, warnings: &mut Vec<String>) -> (Vec<TrackRef>, 
             for r in pkg.references(tag::PACKAGE_TRACKS) {
                 let Some(t) = md.get(&r) else { continue };
                 let id = t.u(tag::TRACK_ID).unwrap_or(0) as u32;
-                if let Some(tr) = file_track(pkg, None, Some(id), 0, None, None)
-                    && !out.iter().any(|o: &TrackRef| o.track_id == tr.track_id && o.track_number == tr.track_number)
-                {
+                if let Some(tr) = file_track(pkg, None, Some(id), 0, None, None) {
                     out.push(tr);
                 }
             }
