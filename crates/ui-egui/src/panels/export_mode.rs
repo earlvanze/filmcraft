@@ -401,8 +401,7 @@ fn draft_text(ui: &mut egui::Ui, reg: &mut Reg, id: &str, stored: &str, hint: &s
     (r.changed() && !v.trim().is_empty()).then_some(v)
 }
 
-/// The output folder as a link (folder icon, accent colour, underlined); the caller opens the save
-/// dialog on a click. A path too long for the row loses its start, so the folder's name stays.
+/// Longest folder tail the link lays out or shows on hover.
 const MAX_LOCATION_DISPLAY_BYTES: usize = 4096;
 
 /// Keep the tail of a UTF-8 folder name without copying or splitting a codepoint. Project item
@@ -419,6 +418,8 @@ fn location_tail(s: &str) -> (&str, bool) {
     (&s[start..], true)
 }
 
+/// The output folder as a link (folder icon, accent colour, underlined); the caller opens the save
+/// dialog on a click. A path too long for the row loses its start, so the folder's name stays.
 fn location_link(ui: &mut egui::Ui, t: &Tokens, folder: &str) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click());
     let col = if resp.hovered() { t.accent_hover } else { t.accent };
