@@ -41,6 +41,9 @@ pub const XFADE_S: f64 = 0.02;
 pub const MAX_ANALYSIS_SECONDS: u64 = 10 * 60;
 /// A dense similarity matrix is useful for planning, but must remain a bounded allocation.
 const MAX_SIMILARITY_CELLS: usize = 4_000_000;
+/// Remix analysis supports ordinary production and high-resolution audio rates, not arbitrary
+/// integers supplied through a public library API.
+pub const MAX_ANALYSIS_SAMPLE_RATE: u32 = 384_000;
 
 /// One piece of the output: `len` samples read from the source at `src`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -143,6 +146,8 @@ impl Analysis {
 /// Why music cannot be remixed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RemixError {
+    /// The source sample rate is zero or above the supported analysis limit.
+    InvalidSampleRate,
     /// The source would exceed the bounded Remix analysis duration.
     TooLong,
     /// The detected beat grid would need too much similarity storage or work.
@@ -158,6 +163,7 @@ pub enum RemixError {
 impl std::fmt::Display for RemixError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
+            RemixError::InvalidSampleRate => "the audio sample rate is not supported for remix analysis",
             RemixError::TooLong => "the music is too long to remix",
             RemixError::TooComplex => "the music has too many beats to remix",
             RemixError::NoBeat => "no beat found in the audio",
@@ -198,7 +204,8 @@ fn stft_mag(x: &[f32], n: usize, hop: usize) -> Vec<Vec<f32>> {
 /// STFT frame for the onset envelope: the power of two nearest to 46 ms (1024 at 22.05 kHz, 2048
 /// at 44.1/48 kHz).
 fn onset_frame(sr: u32) -> usize {
-    let n = (sr as f64 * 0.046).max(256.0);
+    // `onset_envelope` is public on its own, so it must remain bounded even outside `analyze`.
+    let n = (sr.min(MAX_ANALYSIS_SAMPLE_RATE) as f64 * 0.046).max(256.0);
     1usize << n.log2().round() as u32
 }
 
@@ -415,6 +422,9 @@ fn local_max(env: &[f32], t: usize, r: usize) -> f32 {
 
 /// Analyse planar audio (channels are summed to mono).
 pub fn analyze(channels: &[&[f32]], sample_rate: u32) -> Result<Analysis, RemixError> {
+    if sample_rate == 0 || sample_rate > MAX_ANALYSIS_SAMPLE_RATE {
+        return Err(RemixError::InvalidSampleRate);
+    }
     let len = channels.iter().map(|c| c.len()).max().unwrap_or(0);
     if (len as u64) > u64::from(sample_rate).saturating_mul(MAX_ANALYSIS_SECONDS) {
         return Err(RemixError::TooLong);
@@ -822,6 +832,14 @@ mod tests {
         assert_eq!(analyze(&[&too_long], 1), Err(RemixError::TooLong));
         assert_eq!(similarity_cells(2_000), Ok(4_000_000));
         assert_eq!(similarity_cells(2_001), Err(RemixError::TooComplex));
+    }
+
+    #[test]
+    fn public_analysis_rate_is_bounded_before_fft_planning() {
+        assert_eq!(analyze(&[], 0), Err(RemixError::InvalidSampleRate));
+        assert_eq!(analyze(&[], u32::MAX), Err(RemixError::InvalidSampleRate));
+        let (_, n, _) = onset_envelope(&[], u32::MAX);
+        assert!(n <= onset_frame(MAX_ANALYSIS_SAMPLE_RATE));
     }
 
     #[test]
