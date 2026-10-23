@@ -10,14 +10,14 @@ use crate::loopfilter::{LfFrame, PlaneView, filter_superblock};
 use crate::probs::{Counts, adapt_coef_probs, adapt_noncoef_probs};
 use crate::tables::*;
 use crate::tile::{FrameShared, RefUse, Strip, TileDecoder};
-
-/// Maximum luma samples accepted for one decoded reference frame: 8192x8192, above level 6.2's
-/// 8192x4352 (35 651 584 samples).
-const MAX_LUMA_SAMPLES: u64 = 1 << 26;
 use crate::{ColorInfo, Picture, Plane};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, RwLock};
+
+/// Maximum luma samples accepted for one decoded reference frame: 8192x8192, above level 6.2's
+/// 8192x4352 (35 651 584 samples).
+const MAX_LUMA_SAMPLES: u64 = 1 << 26;
 
 /// Counters describing what the decoder has seen (useful to check test coverage).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
