@@ -7,7 +7,8 @@ use crate::tables::*;
 use crate::{AlphaType, ChromaFormat, Error, Frame, Interlace, Result};
 
 /// Maximum aggregate decoded plane storage for one ProRes frame (256 MiB).
-const MAX_FRAME_BYTES: usize = 256 << 20;
+// 1 GiB: 8K ProRes 4444 with alpha is 283 MB of 16-bit planes
+const MAX_FRAME_BYTES: usize = 1 << 30;
 
 /// Decoder options.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
