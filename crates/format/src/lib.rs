@@ -221,6 +221,7 @@ fn validate_loaded(mut loaded: Loaded) -> Result<Loaded, FormatError> {
     // clip pointing past that plays stream 0.
     let max = filmcraft_media::MAX_AUDIO_STREAMS;
     let max_channels = filmcraft_media::MAX_AUDIO_CHANNELS;
+    let max_rate = filmcraft_media::MAX_AUDIO_SAMPLE_RATE;
     for item in loaded.project.items.values_mut() {
         let name = item.name.clone();
         match &mut item.kind {
@@ -230,9 +231,14 @@ fn validate_loaded(mut loaded: Loaded) -> Result<Loaded, FormatError> {
                     m.info.audio_streams.truncate(max);
                 }
                 for stream in &mut m.info.audio_streams {
-                    if stream.channels == 0 || stream.channels > max_channels {
+                    let (rate, channels) = filmcraft_media::bounded_audio_dimensions(stream.sample_rate, stream.channels);
+                    if stream.channels != channels {
                         log::warn!("media `{name}`: {} channels, clamping to {max_channels}", stream.channels);
-                        stream.channels = stream.channels.clamp(1, max_channels);
+                        stream.channels = channels;
+                    }
+                    if stream.sample_rate != rate {
+                        log::warn!("media `{name}`: {} Hz, clamping to {max_rate} Hz", stream.sample_rate);
+                        stream.sample_rate = rate;
                     }
                 }
             }
